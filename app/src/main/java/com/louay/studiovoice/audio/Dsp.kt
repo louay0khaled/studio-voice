@@ -240,6 +240,18 @@ object StudioChain {
             if (x[i] > 0.999f) x[i] = 0.999f
             if (x[i] < -0.999f) x[i] = -0.999f
         }
+        // Final ceiling enforcement: the tanh curve asymptotes to 1.0, not to
+        // the ceiling, and onset transients slip past the compressor before
+        // its envelope reacts — so normalise to the ceiling if anything still
+        // exceeds it. Guarantees peak <= -1 dBFS for any input. (Caught by
+        // DspTest.spectralGateImprovesSnr in CI runs #2/#3: the chained peak
+        // hit the 0.999 hard clamp instead of the -1 dB ceiling.)
+        var peak = 0f
+        for (v in x) { val a = kotlin.math.abs(v); if (a > peak) peak = a }
+        if (peak > ceiling) {
+            val s = ceiling / peak
+            for (i in x.indices) x[i] *= s
+        }
     }
 
     fun rmsDb(x: FloatArray): Float {
@@ -457,6 +469,14 @@ class MasteringChain(
                     v = sgn * (ceiling + (1f - ceiling) * kotlin.math.tanh((a - ceiling) / (1f - ceiling)))
                 }
                 x[i] = v.coerceIn(-0.999f, 0.999f)
+            }
+            // Same ceiling guarantee as StudioChain: tanh asymptotes to 1.0,
+            // so normalise to the -1 dB ceiling if anything still exceeds it.
+            var peak = 0f
+            for (v in x) { val a = kotlin.math.abs(v); if (a > peak) peak = a }
+            if (peak > ceiling) {
+                val s = ceiling / peak
+                for (i in x.indices) x[i] *= s
             }
         }
     }
