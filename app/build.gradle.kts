@@ -1,3 +1,6 @@
+// TEMP PROBE — REMOVE AFTER DIAGNOSIS.
+println("::warning title=ProbeAppScript::app build.gradle.kts evaluating")
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
