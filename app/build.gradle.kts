@@ -1,6 +1,3 @@
-// TEMP PROBE — REMOVE AFTER DIAGNOSIS.
-println("::warning title=ProbeAppScript::app build.gradle.kts evaluating")
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -66,35 +63,3 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-// TEMP DIAGNOSTIC v2 — REMOVE AFTER CI DIAGNOSIS. Job logs are not readable
-// from our automation (interactive auth only), so on build finish print the
-// failure chain + how far the build got + any JUnit XML failure messages as
-// workflow-command annotations, which the API does expose.
-gradle.buildFinished {
-    val bd = layout.buildDirectory.get().asFile
-    fun exists(p: String) = java.io.File(bd, p).exists()
-    println("::notice title=BuildProgress::mainClasses=${exists("tmp/kotlin-classes/debug")} testClasses=${exists("tmp/kotlin-classes/debugUnitTest")} testResults=${exists("test-results/testDebugUnitTest")} mergedAssets=${exists("intermediates/assets/debug")}")
-    var t: Throwable? = failure
-    var depth = 0
-    while (t != null && depth < 6) {
-        val msg = (t.message ?: "").replace("\n", " | ").take(450)
-        println("::error title=BuildFailureChain::[${t.javaClass.simpleName}] $msg")
-        t = t.cause
-        depth++
-    }
-    val dir = java.io.File(bd, "test-results/testDebugUnitTest")
-    if (dir.isDirectory) {
-        dir.listFiles { f -> f.name.endsWith(".xml") }?.sorted()?.forEach { f ->
-            val text = f.readText()
-            fun dec(s: String) = s.replace("&quot;", "\"").replace("&gt;", ">")
-                .replace("&lt;", "<").replace("&#10;", " ").replace("&amp;", "&")
-            Regex("tests=\"(\\d+)\" skipped=\"(\\d+)\" failures=\"(\\d+)\" errors=\"(\\d+)\"")
-                .find(text)?.let {
-                    println("::notice title=UnitTestSummary::${f.name} tests=${it.groupValues[1]} failures=${it.groupValues[3]} errors=${it.groupValues[4]}")
-                }
-            Regex("<(?:failure|error)[^>]*?message=\"([^\"]*)\"").findAll(text).forEach { m ->
-                println("::error title=UnitTestFailure::${dec(m.groupValues[1]).take(500)}")
-            }
-        }
-    }
-}
