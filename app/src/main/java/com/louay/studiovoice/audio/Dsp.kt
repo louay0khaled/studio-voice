@@ -309,9 +309,18 @@ object FftAny {
  * Downward expander / noise gate — MANDATORY stage BEFORE the compressor
  * (owner ear-verdict fix, calibration v2): in v1 the compressor makeup +
  * loudnorm lifted the AI's residual noise floor ~9 dB and re-exposed it in
- * pauses. This gate pushes pauses down by up to [rangeDb] (default 15 dB)
- * with a gentle [releaseMs] (default 250 ms) so words are never clipped.
+ * pauses. This gate pushes pauses down by up to [rangeDb] (default 15 dB).
  * Threshold is set from the file's measured noise floor by the caller.
+ *
+ * Detector = short-window RMS (10 ms), NOT a peak envelope: the previous
+ * peak-envelope detector decayed with the 250 ms gain time constant, so it
+ * needed ~0.75 s of silence to even cross the threshold — natural speech
+ * pauses (0.2–0.5 s) were never gated at all (this is exactly what
+ * DftAndGateTest.gatePushesPausesDownBeforeCompressor caught in CI run #2).
+ * Gain engages over ~40 ms (fast enough to silence a pause, slow enough to
+ * avoid clicks) and releases in ~5 ms so word onsets are never clipped;
+ * reduction depth follows the expansion law, so soft word tails near the
+ * threshold are barely touched.
  */
 class NoiseGate(
     private val sampleRate: Int,
@@ -321,21 +330,35 @@ class NoiseGate(
     attackMs: Float = 3f,
     releaseMs: Float = 250f
 ) {
-    private val attack = kotlin.math.exp(-1.0 / (attackMs * 0.001 * sampleRate)).toFloat()
-    private val release = kotlin.math.exp(-1.0 / (releaseMs * 0.001 * sampleRate)).toFloat()
-    private var env = 0f
+    // Sliding RMS detector window: 10 ms (480 samples @ 48 kHz).
+    private val winLen = max(1, (sampleRate * 0.010).toInt())
+    private val ring = FloatArray(winLen)
+    private var ringPos = 0
+    private var ringFilled = 0
+    private var sumSq = 0.0
+    // Gain smoothing: engage (more reduction) tau ~40 ms, release tau ~5 ms.
+    private val engageStep = 1f - kotlin.math.exp(-1.0 / (0.040 * sampleRate)).toFloat()
+    private val releaseStep = 1f - kotlin.math.exp(-1.0 / (0.005 * sampleRate)).toFloat()
     private var gainDbSmooth = 0f
+
     fun process(x: FloatArray) {
         for (i in x.indices) {
-            val a = kotlin.math.abs(x[i])
-            env = if (a > env) attack * env + (1 - attack) * a else release * env + (1 - release) * a
-            val envDb = 20 * kotlin.math.log10(max(env, 1e-9f))
+            val v = x[i]
+            val sq = v.toDouble() * v
+            if (ringFilled == winLen) sumSq -= ring[ringPos].toDouble()
+            ring[ringPos] = sq.toFloat()
+            sumSq += sq
+            if (ringFilled < winLen) ringFilled++
+            ringPos = (ringPos + 1) % winLen
+            val rms = kotlin.math.sqrt(max(0.0, sumSq) / ringFilled)
+            val envDb = 20 * kotlin.math.log10(max(rms, 1e-9))
             // Downward expansion: below threshold, reduction grows at (1 - 1/ratio), capped at rangeDb.
             val reduction = if (envDb < thresholdDb)
-                min(rangeDb, (thresholdDb - envDb) * (1f - 1f / ratio)) else 0f
-            // Smooth reductions gently (release-led) to protect soft word tails.
-            gainDbSmooth += ((-reduction) - gainDbSmooth) * (1 - release)
-            x[i] *= Math.pow(10.0, gainDbSmooth / 20.0).toFloat()
+                min(rangeDb, (thresholdDb - envDb).toFloat() * (1f - 1f / ratio)) else 0f
+            val target = -reduction
+            val step = if (target < gainDbSmooth) engageStep else releaseStep
+            gainDbSmooth += (target - gainDbSmooth) * step
+            x[i] = (v * Math.pow(10.0, gainDbSmooth / 20.0)).toFloat()
         }
     }
 }
