@@ -63,6 +63,3 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-// TEMP PROBE — REMOVE AFTER DIAGNOSIS.
-println("::warning title=ProbeAppEnd::app script fully evaluated")
-
