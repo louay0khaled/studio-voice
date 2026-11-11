@@ -1,3 +1,8 @@
+// TEMP PROBE A — REMOVE AFTER DIAGNOSIS.
+gradle.projectsEvaluated {
+    println("::warning title=ProbeEvaluated::all project scripts evaluated OK")
+}
+
 pluginManagement {
     repositories {
         google()
