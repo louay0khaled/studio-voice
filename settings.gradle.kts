@@ -5,12 +5,12 @@
 gradle.projectsEvaluated {
     println("::warning title=ProbeEvaluated::all project scripts evaluated OK")
 }
-gradle.buildFinished {
+gradle.buildFinished { result ->
     val app = gradle.rootProject.project(":app")
     val bd = app.layout.buildDirectory.get().asFile
     fun exists(p: String) = java.io.File(bd, p).exists()
     println("::notice title=BuildProgress::mainClasses=${exists("tmp/kotlin-classes/debug")} testClasses=${exists("tmp/kotlin-classes/debugUnitTest")} testResults=${exists("test-results/testDebugUnitTest")}")
-    var t: Throwable? = failure
+    var t: Throwable? = result.failure
     var depth = 0
     while (t != null && depth < 8) {
         val msg = (t.message ?: "").replace("\n", " | ").take(450)
