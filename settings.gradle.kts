@@ -51,3 +51,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "StudioVoice"
 include(":app")
+
+println("::warning title=ProbeSettingsEnd::settings fully evaluated")
