@@ -1,0 +1,7 @@
+.gradle/
+.guh/
+local-maven/
+app/build/
+build/
+*.log
+app/src/main/assets/dpdfnet2_48khz_hr.onnx
