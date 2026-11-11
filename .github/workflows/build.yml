@@ -28,21 +28,82 @@ jobs:
             https://huggingface.co/Ceva-IP/DPDFNet/resolve/main/onnx/dpdfnet2_48khz_hr.onnx
           echo "7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b  app/src/main/assets/dpdfnet2_48khz_hr.onnx" | sha256sum -c -
 
+      # Diagnostics law (owner, 2026-11-11, same as StorePOS): every Gradle step
+      # tees its FULL output into build-full.log; steps keep running even when an
+      # earlier one fails, so ONE run exposes every fault at once. On any failure
+      # the compiler/test error lines are extracted into build-errors.txt and both
+      # files are uploaded as the `studio-voice-build-logs` artifact.
       - name: Unit tests
-        run: gradle :app:testDebugUnitTest --console=plain
+        id: tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --console=plain 2>&1 | tee -a build-full.log
 
       - name: Assemble debug APK
-        run: gradle :app:assembleDebug --console=plain
+        id: assemble
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --console=plain 2>&1 | tee -a build-full.log
+
+      - name: Collect build errors
+        if: always()
+        run: |
+          {
+            echo "Studio Voice build errors"
+            echo "commit: $GITHUB_SHA"
+            echo "tests outcome:    ${{ steps.tests.outcome }}"
+            echo "assemble outcome: ${{ steps.assemble.outcome }}"
+            echo
+            echo "=== error lines (e: / error: / FAILED / What went wrong) ==="
+            grep -nE "(^e: | error: |FAILED|Execution failed|What went wrong)" build-full.log | head -300 || echo "(none matched)"
+            echo
+            echo "=== unit test results (xml summary) ==="
+            grep -hoE 'testsuite name="[^"]*" tests="[0-9]+" skipped="[0-9]+" failures="[0-9]+" errors="[0-9]+"' app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null || echo "(no test result xml)"
+            echo
+            echo "=== last 60 lines of full log ==="
+            tail -60 build-full.log
+          } > build-errors.txt
+          cat build-errors.txt
+
+      - name: Upload build logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-voice-build-logs
+          path: |
+            build-full.log
+            build-errors.txt
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: APK info
+        if: ${{ !cancelled() }}
         run: |
-          ls -lh app/build/outputs/apk/debug/
-          AAPT=$(ls $ANDROID_HOME/build-tools/*/aapt | sort -V | tail -1)
-          $AAPT dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            ls -lh app/build/outputs/apk/debug/
+            AAPT=$(ls $ANDROID_HOME/build-tools/*/aapt | sort -V | tail -1)
+            $AAPT dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
+          else
+            echo "APK was NOT produced in this run."
+          fi
 
       - name: Upload APK artifact
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: studio-voice-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Verdict
+        if: always()
+        run: |
+          fail=0
+          if [ "${{ steps.tests.outcome }}" != "success" ]; then echo "::error::Unit tests step failed — see build-errors.txt in studio-voice-build-logs"; fail=1; fi
+          if [ "${{ steps.assemble.outcome }}" != "success" ]; then echo "::error::Assemble step failed — see build-errors.txt in studio-voice-build-logs"; fail=1; fi
+          if [ ! -f app/build/outputs/apk/debug/app-debug.apk ]; then echo "::error::No APK produced"; fail=1; fi
+          exit $fail
