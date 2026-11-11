@@ -155,10 +155,10 @@ class DpdfSession private constructor(
                 val env = OrtEnvironment.getEnvironment()
                 val opts = OrtSession.SessionOptions().apply {
                     setIntraOpNumThreads(2)
-                    setGraphOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 }
                 val session = env.createSession(bytes, opts)
-                val meta = session.metadata.customMetadataMap
+                val meta = session.metadata.customMetadata
                 val stateSize = meta["state_size"]!!.toInt()
                 val erbN = meta["erb_norm_state_size"]!!.toInt()
                 val specN = meta["spec_norm_state_size"]!!.toInt()
