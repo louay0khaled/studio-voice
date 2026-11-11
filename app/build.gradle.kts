@@ -62,3 +62,30 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
 }
+
+// TEMP DIAGNOSTIC — REMOVE AFTER CI DIAGNOSIS. Job logs are not readable from
+// our automation (interactive auth only), so surface the JUnit XML failure
+// messages as workflow-command annotations, which the API does expose. The
+// test task still fails the build exactly as before; this only reports why.
+tasks.withType<Test>().configureEach {
+    finalizedBy("surfaceTestResults")
+}
+tasks.register("surfaceTestResults") {
+    doLast {
+        val dir = layout.buildDirectory.dir("test-results/testDebugUnitTest").get().asFile
+        if (dir.isDirectory) {
+            dir.listFiles { f -> f.name.endsWith(".xml") }?.sorted()?.forEach { f ->
+                val text = f.readText()
+                fun dec(s: String) = s.replace("&quot;", "\"").replace("&gt;", ">")
+                    .replace("&lt;", "<").replace("&#10;", " ").replace("&amp;", "&")
+                Regex("tests=\"(\\d+)\" skipped=\"(\\d+)\" failures=\"(\\d+)\" errors=\"(\\d+)\"")
+                    .find(text)?.let {
+                        println("::notice title=UnitTestSummary::${f.name} tests=${it.groupValues[1]} failures=${it.groupValues[3]} errors=${it.groupValues[4]}")
+                    }
+                Regex("<(?:failure|error)[^>]*?message=\"([^\"]*)\"").findAll(text).forEach { m ->
+                    println("::error title=UnitTestFailure::${dec(m.groupValues[1]).take(500)}")
+                }
+            }
+        }
+    }
+}
